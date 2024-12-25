@@ -2,6 +2,7 @@ package chaindispatcher
 
 import (
 	"context"
+	"github.com/dapplink-labs/wallet-chain-utxo/chain/dogecoin"
 	"runtime/debug"
 	"strings"
 
@@ -42,12 +43,14 @@ func New(conf *config.Config) (*ChainDispatcher, error) {
 		bitcoincash.ChainName: bitcoincash.NewChainAdaptor,
 		dash.ChainName:        dash.NewChainAdaptor,
 		litecoin.ChainName:    litecoin.NewChainAdaptor,
+		dogecoin.ChainName:    dogecoin.NewChainAdaptor,
 	}
 	supportedChains := []string{
 		bitcoin.ChainName,
 		bitcoincash.ChainName,
 		dash.ChainName,
 		litecoin.ChainName,
+		dogecoin.ChainName,
 	}
 	for _, c := range conf.Chains {
 		if factory, ok := chainAdaptorFactoryMap[c]; ok {
