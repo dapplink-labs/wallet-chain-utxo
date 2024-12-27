@@ -114,13 +114,131 @@ func (c *ChainAdaptor) GetUnspentOutputs(req *utxo.UnspentOutputsRequest) (*utxo
 }
 
 func (c *ChainAdaptor) GetBlockByNumber(req *utxo.BlockNumberRequest) (*utxo.BlockResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	block, err := c.dogeClient.GetBlockByNumber(req.GetHeight())
+	if err != nil {
+		return &utxo.BlockResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  err.Error(),
+		}, err
+	}
+
+	// 构造交易列表
+	var txList []*utxo.TransactionList
+	for _, txid := range block.TxIds {
+		// 获取每个交易的详细信息
+		tx, err := c.dogeClient.GetTransaction(txid)
+		if err != nil {
+			continue
+		}
+
+		// 构造输入
+		var vins []*utxo.Vin
+		for _, input := range tx.Inputs {
+			address := ""
+			if len(input.Addresses) > 0 {
+				address = input.Addresses[0]
+			}
+			vins = append(vins, &utxo.Vin{
+				Hash:    input.PrevHash,
+				Index:   uint32(input.OutputIndex),
+				Amount:  input.OutputValue,
+				Address: address,
+			})
+		}
+
+		// 构造输出
+		var vouts []*utxo.Vout
+		for i, output := range tx.Outputs {
+			address := ""
+			if len(output.Addresses) > 0 {
+				address = output.Addresses[0]
+			}
+			vouts = append(vouts, &utxo.Vout{
+				Address: address,
+				Amount:  output.Value,
+				Index:   uint32(i),
+			})
+		}
+
+		txList = append(txList, &utxo.TransactionList{
+			Hash: txid,
+			Fee:  strconv.FormatInt(tx.Fees, 10),
+			Vin:  vins,
+			Vout: vouts,
+		})
+	}
+
+	return &utxo.BlockResponse{
+		Code:   common2.ReturnCode_SUCCESS,
+		Msg:    "get block success",
+		Height: uint64(block.Height),
+		Hash:   block.Hash,
+		TxList: txList,
+	}, nil
 }
 
 func (c *ChainAdaptor) GetBlockByHash(req *utxo.BlockHashRequest) (*utxo.BlockResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	block, err := c.dogeClient.GetBlockByHash(req.Hash)
+	if err != nil {
+		return &utxo.BlockResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  err.Error(),
+		}, err
+	}
+
+	// 构造交易列表
+	var txList []*utxo.TransactionList
+	for _, txid := range block.TxIds {
+		// 获取每个交易的详细信息
+		tx, err := c.dogeClient.GetTransaction(txid)
+		if err != nil {
+			continue
+		}
+
+		// 构造输入
+		var vins []*utxo.Vin
+		for _, input := range tx.Inputs {
+			address := ""
+			if len(input.Addresses) > 0 {
+				address = input.Addresses[0]
+			}
+			vins = append(vins, &utxo.Vin{
+				Hash:    input.PrevHash,
+				Index:   uint32(input.OutputIndex),
+				Amount:  input.OutputValue,
+				Address: address,
+			})
+		}
+
+		// 构造输出
+		var vouts []*utxo.Vout
+		for i, output := range tx.Outputs {
+			address := ""
+			if len(output.Addresses) > 0 {
+				address = output.Addresses[0]
+			}
+			vouts = append(vouts, &utxo.Vout{
+				Address: address,
+				Amount:  output.Value,
+				Index:   uint32(i),
+			})
+		}
+
+		txList = append(txList, &utxo.TransactionList{
+			Hash: txid,
+			Fee:  strconv.FormatInt(tx.Fees, 10),
+			Vin:  vins,
+			Vout: vouts,
+		})
+	}
+
+	return &utxo.BlockResponse{
+		Code:   common2.ReturnCode_SUCCESS,
+		Msg:    "get block success",
+		Height: uint64(block.Height),
+		Hash:   block.Hash,
+		TxList: txList,
+	}, nil
 }
 
 func (c *ChainAdaptor) GetBlockHeaderByHash(req *utxo.BlockHeaderHashRequest) (*utxo.BlockHeaderResponse, error) {
@@ -223,28 +341,28 @@ func (c *ChainAdaptor) ConvertAddress(req *utxo.ConvertAddressRequest) (*utxo.Co
 	compressedPubKeyBytes, _ := hex.DecodeString(req.PublicKey)
 	pubKeyHash := btcutil.Hash160(compressedPubKeyBytes)
 
-	// Dogecoin使用不同的网络参数
+	// 使用 chaincfg.MainNetParams，但需要修改狗狗币的参数
 	params := &chaincfg.MainNetParams
-	params.PubKeyHashAddrID = 0x1e // Dogecoin的地址前缀
-	params.ScriptHashAddrID = 0x16
+	params.PubKeyHashAddrID = 0x1e // Dogecoin P2PKH地址前缀
+	params.ScriptHashAddrID = 0x16 // Dogecoin P2SH地址前缀
 
 	switch req.Format {
 	case "p2pkh":
+		// 生成普通地址（D开头）
 		p2pkhAddr, err := btcutil.NewAddressPubKeyHash(pubKeyHash, params)
 		if err != nil {
-			log.Error("create p2pkh address fail", "err", err)
 			return nil, err
 		}
 		address = p2pkhAddr.EncodeAddress()
 	case "p2sh":
-		p2shAddr, err := btcutil.NewAddressScriptHashFromHash(pubKeyHash, params)
+		// 生成多签地址（A开头）
+		p2shAddr, err := btcutil.NewAddressScriptHash(pubKeyHash, params)
 		if err != nil {
-			log.Error("create p2sh address fail", "err", err)
 			return nil, err
 		}
 		address = p2shAddr.EncodeAddress()
 	default:
-		return nil, errors.New("Unsupported address type for Dogecoin")
+		return nil, errors.New("unsupported address format for Dogecoin")
 	}
 
 	return &utxo.ConvertAddressResponse{

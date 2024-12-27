@@ -76,3 +76,33 @@ func (c *DogeClient) GetUnspentOutputs(address string) (*UnspentOutputResponse, 
 	}
 	return &result, nil
 }
+
+// GetBlockByNumber 获取区块信息
+func (c *DogeClient) GetBlockByNumber(height int64) (*BlockResponse, error) {
+	var result BlockResponse
+	_, err := c.client.R().
+		//SetQueryParam("txstart", "1").
+		//SetQueryParam("limit", "1").
+		SetQueryParam("token", c.token).
+		SetResult(&result).
+		Get(fmt.Sprintf("%s/blocks/%d", c.baseURL, height))
+
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetBlockByHash 通过哈希获取区块信息
+func (c *DogeClient) GetBlockByHash(hash string) (*BlockResponse, error) {
+	var result BlockResponse
+	_, err := c.client.R().
+		SetQueryParam("token", c.token).
+		SetResult(&result).
+		Get(fmt.Sprintf("%s/blocks/%s", c.baseURL, hash))
+
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

@@ -26,7 +26,6 @@ type TransactionResponse struct {
 	BlockHeight   int64     `json:"block_height"`
 	BlockIndex    int       `json:"block_index"`
 	Hash          string    `json:"hash"`
-	Hex           string    `json:"hex"`
 	Addresses     []string  `json:"addresses"`
 	Total         int64     `json:"total"`
 	Fees          int64     `json:"fees"`
@@ -36,7 +35,6 @@ type TransactionResponse struct {
 	Confirmed     time.Time `json:"confirmed"`
 	Received      time.Time `json:"received"`
 	Ver           int       `json:"ver"`
-	LockTime      int64     `json:"lock_time"`
 	DoubleSpend   bool      `json:"double_spend"`
 	VinSz         int       `json:"vin_sz"`
 	VoutSz        int       `json:"vout_sz"`
@@ -50,8 +48,11 @@ type Input struct {
 	PrevHash    string   `json:"prev_hash"`
 	OutputIndex int      `json:"output_index"`
 	Script      string   `json:"script"`
+	OutputValue int64    `json:"output_value"`
 	Sequence    int64    `json:"sequence"`
 	Addresses   []string `json:"addresses"`
+	ScriptType  string   `json:"script_type"`
+	Age         int64    `json:"age"`
 }
 
 type Output struct {
@@ -59,7 +60,6 @@ type Output struct {
 	Script     string   `json:"script"`
 	Addresses  []string `json:"addresses"`
 	ScriptType string   `json:"script_type"`
-	SpentBy    string   `json:"spent_by,omitempty"`
 }
 
 // AccountResponse 账户余额响应
@@ -146,4 +146,30 @@ type ResultRawData struct {
 	Confirmations uint64 `json:"confirmations"`
 	BlockTime     uint64 `json:"blocktime"`
 	Time          uint64 `json:"time"`
+}
+
+// BlockResponse 区块响应
+type BlockResponse struct {
+	Hash         string    `json:"hash"`
+	Height       int64     `json:"height"`
+	Chain        string    `json:"chain"`
+	Total        int64     `json:"total"`
+	Fees         int64     `json:"fees"`
+	Size         int       `json:"size"`
+	VSize        int       `json:"vsize"`
+	Ver          int       `json:"ver"`
+	Time         time.Time `json:"time"`
+	ReceivedTime time.Time `json:"received_time"`
+	CoinbaseAddr string    `json:"coinbase_addr"`
+	RelayedBy    string    `json:"relayed_by"`
+	Bits         int       `json:"bits"`
+	Nonce        int64     `json:"nonce"`
+	NTx          int       `json:"n_tx"`
+	PrevBlock    string    `json:"prev_block"`
+	MrklRoot     string    `json:"mrkl_root"`
+	TxIds        []string  `json:"txids"`
+	Depth        int       `json:"depth"`
+	PrevBlockURL string    `json:"prev_block_url"`
+	TxURL        string    `json:"tx_url"`
+	NextTxIds    string    `json:"next_txids"`
 }
