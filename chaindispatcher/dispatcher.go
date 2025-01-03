@@ -2,9 +2,11 @@ package chaindispatcher
 
 import (
 	"context"
-	"github.com/dapplink-labs/wallet-chain-utxo/chain/dogecoin"
+	"fmt"
 	"runtime/debug"
 	"strings"
+
+	"github.com/dapplink-labs/wallet-chain-utxo/chain/dogecoin"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -21,6 +23,8 @@ import (
 	"github.com/dapplink-labs/wallet-chain-utxo/rpc/common"
 	"github.com/dapplink-labs/wallet-chain-utxo/rpc/utxo"
 )
+
+var _ utxo.WalletUtxoServiceServer = (*ChainDispatcher)(nil)
 
 type CommonRequest interface {
 	GetChain() string
@@ -69,21 +73,47 @@ func New(conf *config.Config) (*ChainDispatcher, error) {
 func (d *ChainDispatcher) Interceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	defer func() {
 		if e := recover(); e != nil {
-			log.Error("panic error", "msg", e)
-			log.Debug(string(debug.Stack()))
-			err = status.Errorf(codes.Internal, "Panic err: %v", e)
+			log.Error("panic error", "msg", e, "stack", string(debug.Stack()))
+			err = status.Errorf(codes.Internal, "Internal error: %v", e)
 		}
 	}()
 
 	pos := strings.LastIndex(info.FullMethod, "/")
 	method := info.FullMethod[pos+1:]
 
-	chainName := req.(CommonRequest).GetChain()
-	log.Info(method, "chain", chainName, "req", req)
+	log.Info("Received request",
+		"fullMethod", info.FullMethod,
+		"method", method,
+		"requestType", fmt.Sprintf("%T", req),
+		"request", req)
+
+	if chainReq, ok := req.(CommonRequest); ok {
+		chainName := chainReq.GetChain()
+		if chainName == "" {
+			return nil, status.Error(codes.InvalidArgument, "chain name is required")
+		}
+		log.Info("Processing chain request", "chain", chainName)
+	} else {
+		log.Error("Invalid request type", "type", fmt.Sprintf("%T", req))
+		return nil, status.Error(codes.InvalidArgument, "invalid request type")
+	}
 
 	resp, err = handler(ctx, req)
-	log.Debug("Finish handling", "resp", resp, "err", err)
-	return
+	if err != nil {
+		log.Error("Handler error",
+			"method", method,
+			"error", err,
+			"errorType", fmt.Sprintf("%T", err))
+		if _, ok := status.FromError(err); !ok {
+			err = status.Error(codes.Internal, err.Error())
+		}
+		return nil, err
+	}
+
+	log.Debug("Request completed successfully",
+		"method", method,
+		"responseType", fmt.Sprintf("%T", resp))
+	return resp, nil
 }
 
 func (d *ChainDispatcher) preHandler(req interface{}) (resp *CommonReply) {
@@ -252,17 +282,6 @@ func (d *ChainDispatcher) CreateUnSignTransaction(ctx context.Context, request *
 	return d.registry[request.Chain].CreateUnSignTransaction(request)
 }
 
-func (d *ChainDispatcher) BuildSignedTransaction(ctx context.Context, request *utxo.SignedTransactionRequest) (*utxo.SignedTransactionResponse, error) {
-	resp := d.preHandler(request)
-	if resp != nil {
-		return &utxo.SignedTransactionResponse{
-			Code: common.ReturnCode_ERROR,
-			Msg:  "signed tx fail at pre handle",
-		}, nil
-	}
-	return d.registry[request.Chain].BuildSignedTransaction(request)
-}
-
 func (d *ChainDispatcher) DecodeTransaction(ctx context.Context, request *utxo.DecodeTransactionRequest) (*utxo.DecodeTransactionResponse, error) {
 	resp := d.preHandler(request)
 	if resp != nil {
@@ -283,4 +302,15 @@ func (d *ChainDispatcher) VerifySignedTransaction(ctx context.Context, request *
 		}, nil
 	}
 	return d.registry[request.Chain].VerifySignedTransaction(request)
+}
+
+func (d *ChainDispatcher) BuildSignedTransaction(ctx context.Context, request *utxo.SignedTransactionRequest) (*utxo.SignedTransactionResponse, error) {
+	resp := d.preHandler(request)
+	if resp != nil {
+		return &utxo.SignedTransactionResponse{
+			Code: common.ReturnCode_ERROR,
+			Msg:  "build signed transaction fail at pre handle",
+		}, nil
+	}
+	return d.registry[request.Chain].BuildSignedTransaction(request)
 }

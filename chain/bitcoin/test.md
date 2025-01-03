@@ -101,47 +101,46 @@ grpcurl -plaintext -d '{
 - request
 ```
 grpcurl -plaintext -d '{
-  "chain": "Bitcoin",
-  "coin": "BTC",
+  "chain": "Dogecoin",
+  "coin": "doge",
   "network": "mainnet",
-  "hash": "6120d6603f3fb0811018afb5ee397971b69bbb927f05f5cc36249ac6aeff578b"
+  "hash": "9b1810bcb18af9916f7ddc2588a9d262fad19cece21936c7a742ae4849ce21b9"
 }' 127.0.0.1:8289 dapplink.utxo.WalletUtxoService.getTxByHash
 ```
 - response
-```
-{
+```{
   "code": "SUCCESS",
   "msg": "get transaction success",
   "tx": {
-    "hash": "6120d6603f3fb0811018afb5ee397971b69bbb927f05f5cc36249ac6aeff578b",
+    "hash": "9b1810bcb18af9916f7ddc2588a9d262fad19cece21936c7a742ae4849ce21b9",
     "index": 0,
     "froms": [
       {
-        "address": "bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2"
+        "address": "DSWgTjzByQFoGQtGEGq9yzNPr7StEGX7tV"
       }
     ],
     "tos": [
       {
-        "address": "bc1qhk0ghcywv0mlmcmz408sdaxudxuk9tvng9xx8g"
+        "address": "DLAGch3DRpf3cDLAXXqDRUffUBvUdCuW9M"
       },
       {
-        "address": "bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2"
+        "address": "DNRkXPjdWfqiy4betAY97y2t9fDMZYdtPb"
       }
     ],
-    "fee": "1861",
+    "fee": "600000000",
     "status": "Success",
     "values": [
       {
-        "value": "70000000000"
+        "value": "1437600000000"
       },
       {
-        "value": "109999998139"
+        "value": "4457125016418361"
       }
     ],
     "type": 0,
-    "height": "868100",
+    "height": "5513540",
     "brc20_address": "",
-    "datetime": "1730299686"
+    "datetime": "2024-12-22T15:43:21Z"
   }
 }
 ```

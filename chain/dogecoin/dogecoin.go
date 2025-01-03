@@ -1,16 +1,20 @@
 package dogecoin
 
 import (
+	"bytes"
 	"encoding/hex"
 	"strconv"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/pkg/errors"
 
-	"github.com/btcsuite/btcd/chaincfg"
-
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 
 	"github.com/dapplink-labs/wallet-chain-utxo/chain"
 	"github.com/dapplink-labs/wallet-chain-utxo/chain/dogecoin/base"
@@ -242,18 +246,41 @@ func (c *ChainAdaptor) GetBlockByHash(req *utxo.BlockHashRequest) (*utxo.BlockRe
 }
 
 func (c *ChainAdaptor) GetBlockHeaderByHash(req *utxo.BlockHeaderHashRequest) (*utxo.BlockHeaderResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	block, err := c.dogeClient.GetBlockByHash(req.Hash)
+	if err != nil {
+		return &utxo.BlockHeaderResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "get block header fail",
+		}, err
+	}
+
+	return &utxo.BlockHeaderResponse{
+		Code:       common2.ReturnCode_SUCCESS,
+		Msg:        "get block header success",
+		ParentHash: block.PrevBlock,
+		Number:     string(block.Ver),
+		BlockHash:  req.Hash,
+		MerkleRoot: block.MrklRoot,
+	}, nil
 }
 
 func (c *ChainAdaptor) GetBlockHeaderByNumber(req *utxo.BlockHeaderNumberRequest) (*utxo.BlockHeaderResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
+	block, err := c.dogeClient.GetBlockByNumber(req.Height)
+	if err != nil {
+		return &utxo.BlockHeaderResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "get block header fail",
+		}, err
+	}
 
-func (c *ChainAdaptor) SendTx(req *utxo.SendTxRequest) (*utxo.SendTxResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return &utxo.BlockHeaderResponse{
+		Code:       common2.ReturnCode_SUCCESS,
+		Msg:        "get block header success",
+		ParentHash: block.PrevBlock,
+		Number:     string(block.Ver),
+		BlockHash:  block.Hash,
+		MerkleRoot: block.MrklRoot,
+	}, nil
 }
 
 func (c *ChainAdaptor) GetTxByAddress(req *utxo.TxAddressRequest) (*utxo.TxAddressResponse, error) {
@@ -313,26 +340,6 @@ func (c *ChainAdaptor) GetTxByHash(req *utxo.TxHashRequest) (*utxo.TxHashRespons
 		Msg:  "get transaction success",
 		Tx:   txMsg,
 	}, nil
-}
-
-func (c *ChainAdaptor) CreateUnSignTransaction(req *utxo.UnSignTransactionRequest) (*utxo.UnSignTransactionResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest) (*utxo.SignedTransactionResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (c *ChainAdaptor) DecodeTransaction(req *utxo.DecodeTransactionRequest) (*utxo.DecodeTransactionResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (c *ChainAdaptor) VerifySignedTransaction(req *utxo.VerifyTransactionRequest) (*utxo.VerifyTransactionResponse, error) {
-	//TODO implement me
-	panic("implement me")
 }
 
 // 主要修改的部分是地址格式和网络参数
@@ -434,3 +441,251 @@ func (c *ChainAdaptor) ValidAddress(req *utxo.ValidAddressRequest) (*utxo.ValidA
 //
 //	return result.Result.FeeRate, nil
 //}
+
+func (c *ChainAdaptor) CreateUnSignTransaction(req *utxo.UnSignTransactionRequest) (*utxo.UnSignTransactionResponse, error) {
+	// 1. 参数验证
+	if len(req.Vin) == 0 || len(req.Vout) == 0 {
+		return &utxo.UnSignTransactionResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "invalid transaction inputs or outputs",
+		}, errors.New("invalid transaction inputs or outputs")
+	}
+
+	// 2. 使用狗狗币的网络参数
+	params := &chaincfg.MainNetParams
+	params.PubKeyHashAddrID = 0x1e // Dogecoin P2PKH地址前缀
+	params.ScriptHashAddrID = 0x16 // Dogecoin P2SH地址前缀
+
+	// 3. 创建交易
+	rawTx := wire.NewMsgTx(wire.TxVersion)
+
+	// 4. 添加输入
+	for _, in := range req.Vin {
+		utxoHash, err := chainhash.NewHashFromStr(in.Hash)
+		if err != nil {
+			return &utxo.UnSignTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  "invalid input hash: " + err.Error(),
+			}, err
+		}
+		txIn := wire.NewTxIn(wire.NewOutPoint(utxoHash, in.Index), nil, nil)
+		rawTx.AddTxIn(txIn)
+	}
+
+	// 5. 添加输出
+	for _, out := range req.Vout {
+		toAddress, err := btcutil.DecodeAddress(out.Address, params)
+		if err != nil {
+			return &utxo.UnSignTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  "invalid output address: " + err.Error(),
+			}, err
+		}
+		toPkScript, err := txscript.PayToAddrScript(toAddress)
+		if err != nil {
+			return &utxo.UnSignTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  "create output script failed: " + err.Error(),
+			}, err
+		}
+		rawTx.AddTxOut(wire.NewTxOut(out.Amount, toPkScript))
+	}
+
+	// 6. 计算签名哈希
+	signHashes := make([][]byte, len(req.Vin))
+	for i, in := range req.Vin {
+		fromAddr, err := btcutil.DecodeAddress(in.Address, params)
+		if err != nil {
+			return &utxo.UnSignTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  "invalid input address: " + err.Error(),
+			}, err
+		}
+		fromPkScript, err := txscript.PayToAddrScript(fromAddr)
+		if err != nil {
+			return &utxo.UnSignTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  "create input script failed: " + err.Error(),
+			}, err
+		}
+		signHash, err := txscript.CalcSignatureHash(fromPkScript, txscript.SigHashAll, rawTx, i)
+		if err != nil {
+			return &utxo.UnSignTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  "calculate sign hash failed: " + err.Error(),
+			}, err
+		}
+		signHashes[i] = signHash
+	}
+
+	// 7. 序列化交易
+	var txBuf bytes.Buffer
+	if err := rawTx.Serialize(&txBuf); err != nil {
+		return &utxo.UnSignTransactionResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "serialize transaction failed: " + err.Error(),
+		}, err
+	}
+
+	// 将二进制数据转换为十六进制字符串
+	txHex := hex.EncodeToString(txBuf.Bytes())
+
+	// 签名哈希转换为十六进制字符串数组
+	signHashesHex := make([][]byte, 0)
+	for _, hash := range signHashes {
+		// 将每个哈希转换为十六进制字符串
+		hashHex := hex.EncodeToString(hash)
+		signHashesHex = append(signHashesHex, []byte(hashHex))
+	}
+
+	log.Info("Transaction created",
+		"txHex", txHex,
+		"signHashes", signHashesHex)
+
+	// 8. 返回结果
+	return &utxo.UnSignTransactionResponse{
+		Code:       common2.ReturnCode_SUCCESS,
+		Msg:        "create unsigned transaction success",
+		TxData:     []byte(txHex),
+		SignHashes: signHashesHex,
+	}, nil
+}
+
+// CalcSignHashes 计算签名哈希
+func (c *ChainAdaptor) CalcSignHashes(Vins []*utxo.Vin, Vouts []*utxo.Vout) ([][]byte, []byte, error) {
+	if len(Vins) == 0 || len(Vouts) == 0 {
+		return nil, nil, errors.New("invalid len in or out")
+	}
+
+	// 使用狗狗币的网络参数
+	params := &chaincfg.MainNetParams
+	params.PubKeyHashAddrID = 0x1e // Dogecoin P2PKH地址前缀
+	params.ScriptHashAddrID = 0x16 // Dogecoin P2SH地址前缀
+
+	rawTx := wire.NewMsgTx(wire.TxVersion)
+
+	// 添加输入
+	for _, in := range Vins {
+		utxoHash, err := chainhash.NewHashFromStr(in.Hash)
+		if err != nil {
+			return nil, nil, err
+		}
+		txIn := wire.NewTxIn(wire.NewOutPoint(utxoHash, in.Index), nil, nil)
+		rawTx.AddTxIn(txIn)
+	}
+
+	// 添加输出
+	for _, out := range Vouts {
+		toAddress, err := btcutil.DecodeAddress(out.Address, params)
+		if err != nil {
+			return nil, nil, err
+		}
+		toPkScript, err := txscript.PayToAddrScript(toAddress)
+		if err != nil {
+			return nil, nil, err
+		}
+		rawTx.AddTxOut(wire.NewTxOut(out.Amount, toPkScript))
+	}
+
+	// 计算每个输入的签名哈希
+	signHashes := make([][]byte, len(Vins))
+	for i, in := range Vins {
+		fromAddr, err := btcutil.DecodeAddress(in.Address, params)
+		if err != nil {
+			return nil, nil, err
+		}
+		fromPkScript, err := txscript.PayToAddrScript(fromAddr)
+		if err != nil {
+			return nil, nil, err
+		}
+		signHash, err := txscript.CalcSignatureHash(fromPkScript, txscript.SigHashAll, rawTx, i)
+		if err != nil {
+			return nil, nil, err
+		}
+		signHashes[i] = signHash
+	}
+
+	// 序列化交易
+	buf := bytes.NewBuffer(make([]byte, 0, rawTx.SerializeSize()))
+	err := rawTx.Serialize(buf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return signHashes, buf.Bytes(), nil
+}
+
+func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest) (*utxo.SignedTransactionResponse, error) {
+	// 1. 将十六进制字符串转换回字节数组
+	txHex := string(req.TxData)
+	log.Info("Transaction hex", "hex", txHex)
+
+	txBytes, err := hex.DecodeString(txHex)
+	if err != nil {
+		log.Error("Failed to decode transaction hex",
+			"error", err,
+			"txHex", txHex)
+		return nil, err
+	}
+
+	// 2. 反序列化交易
+	var rawTx wire.MsgTx
+	if err := rawTx.Deserialize(bytes.NewReader(txBytes)); err != nil {
+		log.Error("Failed to deserialize transaction",
+			"error", err,
+			"txBytes", hex.EncodeToString(txBytes))
+		return nil, err
+	}
+
+	// 3. 检查签名和公钥
+	if len(req.Signatures) != len(req.PublicKeys) || len(req.Signatures) == 0 {
+		log.Error("Invalid signatures or public keys",
+			"sigCount", len(req.Signatures),
+			"pubKeyCount", len(req.PublicKeys))
+		return nil, errors.New("invalid signatures or public keys")
+	}
+
+	// 4. 构建签名脚本
+	for i := 0; i < len(rawTx.TxIn); i++ {
+		builder := txscript.NewScriptBuilder()
+		builder.AddData(req.Signatures[0])
+		builder.AddData(req.PublicKeys[0])
+		signScript, err := builder.Script()
+		if err != nil {
+			log.Error("Failed to build signature script", "error", err)
+			return nil, err
+		}
+		rawTx.TxIn[i].SignatureScript = signScript
+	}
+
+	// 5. 序列化签名后的交易
+	var signedTxBuf bytes.Buffer
+	if err := rawTx.Serialize(&signedTxBuf); err != nil {
+		log.Error("Failed to serialize signed transaction", "error", err)
+		return nil, err
+	}
+
+	// 6. 计算交易哈希
+	txHash := rawTx.TxHash()
+
+	return &utxo.SignedTransactionResponse{
+		Code:         common2.ReturnCode_SUCCESS,
+		Msg:          "Transaction signed successfully",
+		SignedTxData: signedTxBuf.Bytes(),
+		Hash:         txHash[:],
+	}, nil
+}
+
+func (c *ChainAdaptor) DecodeTransaction(req *utxo.DecodeTransactionRequest) (*utxo.DecodeTransactionResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *ChainAdaptor) VerifySignedTransaction(req *utxo.VerifyTransactionRequest) (*utxo.VerifyTransactionResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+func (c *ChainAdaptor) SendTx(req *utxo.SendTxRequest) (*utxo.SendTxResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
