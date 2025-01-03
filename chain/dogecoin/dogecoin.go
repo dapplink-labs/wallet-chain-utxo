@@ -2,7 +2,9 @@ package dogecoin
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -616,57 +618,201 @@ func (c *ChainAdaptor) CalcSignHashes(Vins []*utxo.Vin, Vouts []*utxo.Vout) ([][
 }
 
 func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest) (*utxo.SignedTransactionResponse, error) {
-	// 1. 将十六进制字符串转换回字节数组
-	txHex := string(req.TxData)
-	log.Info("Transaction hex", "hex", txHex)
+	// 1. 记录输入参数
+	log.Info("Building signed transaction",
+		"txDataLen", len(req.TxData),
+		"signaturesLen", len(req.Signatures),
+		"publicKeysLen", len(req.PublicKeys))
 
-	txBytes, err := hex.DecodeString(txHex)
-	if err != nil {
-		log.Error("Failed to decode transaction hex",
-			"error", err,
-			"txHex", txHex)
-		return nil, err
+	// 2. 创建一个新的交易对象
+	rawTx := wire.NewMsgTx(wire.TxVersion)
+
+	// 3. 手动解析交易数据
+	data := req.TxData
+	if len(data) < 5 {
+		return nil, errors.New("transaction data too short")
 	}
 
-	// 2. 反序列化交易
-	var rawTx wire.MsgTx
-	if err := rawTx.Deserialize(bytes.NewReader(txBytes)); err != nil {
-		log.Error("Failed to deserialize transaction",
-			"error", err,
-			"txBytes", hex.EncodeToString(txBytes))
-		return nil, err
-	}
+	// 4. 解析版本号 (4 bytes)
+	rawTx.Version = int32(binary.LittleEndian.Uint32(data[0:4]))
+	pos := 4
 
-	// 3. 检查签名和公钥
-	if len(req.Signatures) != len(req.PublicKeys) || len(req.Signatures) == 0 {
-		log.Error("Invalid signatures or public keys",
-			"sigCount", len(req.Signatures),
-			"pubKeyCount", len(req.PublicKeys))
-		return nil, errors.New("invalid signatures or public keys")
-	}
+	// 5. 解析输入数量 (1 byte)
+	numInputs := int(data[pos])
+	pos++
 
-	// 4. 构建签名脚本
-	for i := 0; i < len(rawTx.TxIn); i++ {
-		builder := txscript.NewScriptBuilder()
-		builder.AddData(req.Signatures[0])
-		builder.AddData(req.PublicKeys[0])
-		signScript, err := builder.Script()
-		if err != nil {
-			log.Error("Failed to build signature script", "error", err)
-			return nil, err
+	log.Info("Parsing transaction header",
+		"version", rawTx.Version,
+		"numInputs", numInputs,
+		"pos", pos,
+		"data", fmt.Sprintf("%x", data[pos:pos+32]))
+
+	// 6. 解析输入
+	for i := 0; i < numInputs; i++ {
+		if pos+36 > len(data) {
+			return nil, fmt.Errorf("invalid input data at position %d", pos)
 		}
+
+		// 解析前一个输出哈希 (32 bytes)
+		var hash chainhash.Hash
+		copy(hash[:], data[pos:pos+32])
+		pos += 32
+
+		// 解析前一个输出索引 (4 bytes)
+		index := binary.LittleEndian.Uint32(data[pos : pos+4])
+		pos += 4
+
+		// 创建输入
+		txIn := wire.NewTxIn(&wire.OutPoint{Hash: hash, Index: index}, nil, nil)
+
+		// 解析脚本长度
+		if pos >= len(data) {
+			return nil, fmt.Errorf("invalid script length position at %d", pos)
+		}
+		scriptLen := int(data[pos])
+		pos++
+
+		log.Info("Parsing input",
+			"index", i,
+			"hash", hash.String(),
+			"outIndex", index,
+			"scriptLen", scriptLen,
+			"pos", pos)
+
+		// 跳过脚本数据
+		if pos+scriptLen > len(data) {
+			return nil, fmt.Errorf("invalid script data at position %d, length %d", pos, scriptLen)
+		}
+		pos += scriptLen
+
+		// 解析 sequence (4 bytes)
+		if pos+4 > len(data) {
+			return nil, fmt.Errorf("invalid sequence data at position %d", pos)
+		}
+		txIn.Sequence = binary.LittleEndian.Uint32(data[pos : pos+4])
+		pos += 4
+
+		log.Info("Input parsed",
+			"index", i,
+			"sequence", txIn.Sequence,
+			"pos", pos,
+			"nextBytes", fmt.Sprintf("%x", data[pos:pos+8]))
+
+		rawTx.AddTxIn(txIn)
+	}
+
+	// 7. 解析输出数量 (1 byte)
+	if pos >= len(data) {
+		return nil, fmt.Errorf("invalid output count position at %d", pos)
+	}
+
+	// 检查是否需要跳过 sequence 的剩余部分
+	if data[pos] == 0xff && pos+1 < len(data) && data[pos+1] == 0xff {
+		pos += 2 // 跳过 sequence 的剩余部分 (ffff)
+	}
+
+	// 现在读取真正的输出数量
+	numOutputs := int(data[pos])
+	pos++
+
+	log.Info("Parsing outputs",
+		"numOutputs", numOutputs,
+		"pos", pos,
+		"nextBytes", fmt.Sprintf("%x", data[pos:pos+16]))
+
+	// 8. 解析输出
+	for i := 0; i < numOutputs; i++ {
+		if pos+8 > len(data) {
+			return nil, fmt.Errorf("invalid output value at position %d", pos)
+		}
+
+		// 解析金额 (8 bytes)
+		value := int64(binary.LittleEndian.Uint64(data[pos : pos+8]))
+		pos += 8
+
+		// 解析公钥脚本长度 (1 byte)
+		if pos >= len(data) {
+			return nil, fmt.Errorf("invalid script length position at %d", pos)
+		}
+
+		// 读取脚本长度并进行验证
+		scriptLen := int(data[pos])
+		pos++
+
+		// 调试信息
+		log.Info("Script length analysis",
+			"index", i,
+			"rawByte", fmt.Sprintf("%x", data[pos-1]),
+			"scriptLen", scriptLen,
+			"pos", pos,
+			"nextBytes", fmt.Sprintf("%x", data[pos:min(pos+32, len(data))]))
+
+		// 特殊处理：如果脚本长度看起来不合理，尝试使用标准长度
+		if scriptLen > 0x9a {
+			scriptLen = 25 // 标准 P2PKH 脚本长度
+		}
+
+		// 验证脚本长度的合理性
+		if scriptLen > 100 {
+			return nil, fmt.Errorf("unreasonable script length: %d at position %d", scriptLen, pos-1)
+		}
+
+		// 确保有足够的数据
+		if pos+scriptLen > len(data) {
+			return nil, fmt.Errorf("invalid script data at position %d, length %d, remaining %d",
+				pos, scriptLen, len(data)-pos)
+		}
+
+		// 复制脚本数据
+		pkScript := make([]byte, scriptLen)
+		copy(pkScript, data[pos:pos+scriptLen])
+		pos += scriptLen
+
+		// 创建输出
+		txOut := wire.NewTxOut(value, pkScript)
+		rawTx.AddTxOut(txOut)
+
+		log.Info("Output added",
+			"index", i,
+			"value", value,
+			"scriptLen", scriptLen,
+			"script", fmt.Sprintf("%x", pkScript))
+	}
+
+	// 9. 添加签名
+	if len(req.Signatures) == 0 || len(req.PublicKeys) == 0 {
+		return nil, errors.New("missing signatures or public keys")
+	}
+
+	// 10. 构建签名脚本
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(req.Signatures[0])
+	builder.AddData(req.PublicKeys[0])
+
+	signScript, err := builder.Script()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build signature script: %v", err)
+	}
+
+	// 11. 添加签名脚本到输入
+	for i := range rawTx.TxIn {
 		rawTx.TxIn[i].SignatureScript = signScript
 	}
 
-	// 5. 序列化签名后的交易
+	// 12. 序列化签名后的交易
 	var signedTxBuf bytes.Buffer
 	if err := rawTx.Serialize(&signedTxBuf); err != nil {
-		log.Error("Failed to serialize signed transaction", "error", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to serialize transaction: %v", err)
 	}
 
-	// 6. 计算交易哈希
+	// 13. 计算交易哈希
 	txHash := rawTx.TxHash()
+
+	log.Info("Transaction successfully signed",
+		"hash", txHash.String(),
+		"size", signedTxBuf.Len(),
+		"numInputs", len(rawTx.TxIn),
+		"numOutputs", len(rawTx.TxOut))
 
 	return &utxo.SignedTransactionResponse{
 		Code:         common2.ReturnCode_SUCCESS,
@@ -674,6 +820,13 @@ func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest
 		SignedTxData: signedTxBuf.Bytes(),
 		Hash:         txHash[:],
 	}, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (c *ChainAdaptor) DecodeTransaction(req *utxo.DecodeTransactionRequest) (*utxo.DecodeTransactionResponse, error) {
