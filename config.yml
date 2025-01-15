@@ -1,5 +1,6 @@
 server:
-  port: 8289
+  grpc_port: "8289"
+  web_port: "8290"
 
 network: mainnet
 

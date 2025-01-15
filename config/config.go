@@ -9,7 +9,8 @@ import (
 )
 
 type Server struct {
-	Port string `yaml:"port"`
+	GrpcPort string `yaml:"grpc_port"`
+	WebPort  string `yaml:"web_port"`
 }
 
 type RPC struct {

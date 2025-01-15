@@ -1,2 +1,19 @@
+# IDE
 .idea
-./wallet-chain-utxo
+.vscode
+
+# OS
+.DS_Store
+
+# Binary
+wallet-chain-utxo
+/wallet-chain-utxo
+
+# Temp files
+*.tmp
+*.log
+
+# Build
+/build
+/bin
+/dist
