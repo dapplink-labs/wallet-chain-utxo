@@ -1,5 +1,5 @@
 server:
-  port: 8289
+  port: 8389
 
 network: mainnet
 
