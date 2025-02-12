@@ -27,22 +27,23 @@ func main() {
 		panic(err)
 	}
 
-	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(dispatcher.Interceptor))
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(dispatcher.Interceptor),
+	)
 	defer grpcServer.GracefulStop()
 
 	utxo.RegisterWalletUtxoServiceServer(grpcServer, dispatcher)
 
 	listen, err := net.Listen("tcp", ":"+conf.Server.Port)
 	if err != nil {
-		log.Error("net listen failed", "err", err)
+		log.Error("Failed to listen", "error", err)
 		panic(err)
 	}
 	reflection.Register(grpcServer)
 
-	log.Info("dapplink wallet rpc services start success", "port", conf.Server.Port)
-
+	log.Info("Starting gRPC server", "port", conf.Server.Port)
 	if err := grpcServer.Serve(listen); err != nil {
-		log.Error("grpc server serve failed", "err", err)
+		log.Error("Failed to serve", "error", err)
 		panic(err)
 	}
 }

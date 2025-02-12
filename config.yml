@@ -3,7 +3,7 @@ server:
 
 network: mainnet
 
-chains: [Bitcoin, Dash, BitcoinCash, Litecoin]
+chains: [Bitcoin, Dash, BitcoinCash, Litecoin,Dogecoin]
 
 walletnode:
   btc:
@@ -39,6 +39,17 @@ walletnode:
     rpc_pass: ''
     data_api_url: 'https://www.oklink.com/'
     data_api_key: '5181d535-b68f-41cf-bbc6-25905e46b6a6'
+    data_api_token: ''
+    time_out: 100
+    tp_api_url: 'https://blockchain.info/'
+
+
+  doge:
+    rpc_url: 'https://go.getblock.io/ae1a6deddaab48c292f7220aed796571'
+    rpc_user: ''
+    rpc_pass: ''
+    data_api_url: 'https://api.blockcypher.com/v1/doge/main'
+    data_api_key: '23660579f4ef4aaa8b3c4032887d1266'
     data_api_token: ''
     time_out: 100
     tp_api_url: 'https://blockchain.info/'
