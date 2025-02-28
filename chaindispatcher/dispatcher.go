@@ -16,6 +16,7 @@ import (
 	"github.com/dapplink-labs/wallet-chain-utxo/chain/bitcoincash"
 	"github.com/dapplink-labs/wallet-chain-utxo/chain/dash"
 	"github.com/dapplink-labs/wallet-chain-utxo/chain/litecoin"
+	"github.com/dapplink-labs/wallet-chain-utxo/chain/zcash"
 	"github.com/dapplink-labs/wallet-chain-utxo/config"
 	"github.com/dapplink-labs/wallet-chain-utxo/rpc/common"
 	"github.com/dapplink-labs/wallet-chain-utxo/rpc/utxo"
@@ -42,12 +43,14 @@ func New(conf *config.Config) (*ChainDispatcher, error) {
 		bitcoincash.ChainName: bitcoincash.NewChainAdaptor,
 		dash.ChainName:        dash.NewChainAdaptor,
 		litecoin.ChainName:    litecoin.NewChainAdaptor,
+		zcash.ChainName:       zcash.NewChainAdaptor,
 	}
 	supportedChains := []string{
 		bitcoin.ChainName,
 		bitcoincash.ChainName,
 		dash.ChainName,
 		litecoin.ChainName,
+		zcash.ChainName,
 	}
 	for _, c := range conf.Chains {
 		if factory, ok := chainAdaptorFactoryMap[c]; ok {
