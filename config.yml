@@ -3,7 +3,7 @@ server:
 
 network: mainnet
 
-chains: [Bitcoin, Dash, BitcoinCash, Litecoin]
+chains: [Bitcoin, Dash, BitcoinCash, Litecoin, Zcash]
 
 walletnode:
   btc:
@@ -42,5 +42,13 @@ walletnode:
     data_api_token: ''
     time_out: 100
     tp_api_url: 'https://blockchain.info/'
-
+  zec:
+    rpc_url: 'https://go.getblock.io/9d222d9f14c543e9b89e6b16c3871d24'
+    rpc_user: ''
+    rpc_pass: ''
+    data_api_url: 'https://rest.cryptoapis.io/'
+    data_api_key: '4706788d75036b5b6ec1778c42a2f55fe74c544c'
+    data_api_token: ''
+    time_out: 100
+    tp_api_url: 'https://go.getblock.io'
 
