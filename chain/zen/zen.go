@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/gob"
 	"encoding/hex"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -288,11 +287,9 @@ func (c *ChainAdaptor) CalcSignHashes(Vins []*utxo.Vin, Vouts []*utxo.Vout) (sig
 	if err != nil {
 		return nil, nil, errors.Errorf("get block by height fail, height: %d, err: %v", 0, err)
 	}
-	fmt.Println("block.Height", block.Height)
-	fmt.Println("block.Hash", block.Hash)
 	txObjectInputParam := types.TXObjectInputParam{
-		BlockHeight: 1726122,
-		BlockHash:   "00000000023699a6778a95a3f4f7940e65142fe09146a5ed08b2b6ec9822b9ba",
+		BlockHeight: block.Height,
+		BlockHash:   block.Hash,
 		ParamIns:    []types.ParamIn{},
 		ParamOuts:   []types.ParamOut{},
 	}
@@ -409,8 +406,6 @@ func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest
 	}
 
 	rawTx, err := util.SerializeTX(&txObj, false)
-
-	fmt.Println("rawTx", hex.EncodeToString(rawTx))
 
 	return &utxo.SignedTransactionResponse{
 		Code:         common2.ReturnCode_SUCCESS,
