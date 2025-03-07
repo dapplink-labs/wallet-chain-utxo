@@ -429,7 +429,7 @@ func (c *ChainAdaptor) SendTx(req *utxo.SendTxRequest) (*utxo.SendTxResponse, er
 			Msg:  err.Error(),
 		}, err
 	}
-	txHash, ok := resMap["hex"].(string)
+	txHash, ok := resMap["result"].(string)
 	if !ok {
 		errorMap := resMap["error"].(map[string]interface{})
 		errMsg := errorMap["message"].(string)
@@ -558,10 +558,10 @@ func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest
 	for i, in := range msgTx.TxIn {
 		txHashRequest := &utxo.TxHashRequest{
 			Chain: ChainName,
-			Hash:  hex.EncodeToString(in.PreviousOutPoint.Hash[:]),
+			Hash:  in.PreviousOutPoint.Hash.String(),
 		}
 
-		txHashResponse, err2 := c.GetTxByHash(txHashRequest)
+		preTx, err2 := c.GetTxByHash(txHashRequest)
 		if err2 != nil {
 			log.Error("CreateSignedTransaction GetRawTransactionVerbose", "err", err2)
 			return &utxo.SignedTransactionResponse{
@@ -569,11 +569,13 @@ func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest
 				Msg:  err2.Error(),
 			}, err2
 		}
+		fromAddress := preTx.Tx.Tos[in.PreviousOutPoint.Index].Address
+		log.Info("CreateSignedTransaction ", "from address", fromAddress)
 
-		log.Info("CreateSignedTransaction ", "from address", txHashResponse.Tx.Tos[in.PreviousOutPoint.Index].Address)
+		ripemd160Result, _ := extractPubKeyHashFromAddress(fromAddress)
 
 		fromPkScript, err2 := txscript.NewScriptBuilder().AddOp(txscript.OP_DUP).AddOp(txscript.OP_HASH160).
-			AddData(req.PublicKeys[i]).AddOp(txscript.OP_EQUALVERIFY).AddOp(txscript.OP_CHECKSIG).
+			AddData(ripemd160Result).AddOp(txscript.OP_EQUALVERIFY).AddOp(txscript.OP_CHECKSIG).
 			Script()
 
 		if err2 != nil {
@@ -591,13 +593,37 @@ func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest
 				Msg:  err2.Error(),
 			}, err2
 		}
-		var r *btcec.ModNScalar
-		R := r.SetInt(r.SetBytes((*[32]byte)(req.Signatures[i][0:32])))
-		var s *btcec.ModNScalar
-		S := s.SetInt(r.SetBytes((*[32]byte)(req.Signatures[i][32:64])))
-		btcecSig := ecdsa.NewSignature(R, S)
+
+		// 初始化 r 和 s
+		r := new(btcec.ModNScalar)
+		s := new(btcec.ModNScalar)
+
+		// 从签名中提取前 32 字节作为 R 和后 32 字节作为 S
+		r.SetBytes((*[32]byte)(req.Signatures[i][0:32]))
+		s.SetBytes((*[32]byte)(req.Signatures[i][32:64]))
+
+		btcecSig := ecdsa.NewSignature(r, s)
+		if err != nil {
+			return nil, fmt.Errorf("无法从签名中恢复公钥: %v", err)
+		}
 		sig := append(btcecSig.Serialize(), byte(txscript.SigHashAll))
-		sigScript, err2 := txscript.NewScriptBuilder().AddData(sig).AddData(req.PublicKeys[i]).Script()
+
+		btcecPub, err2 := btcec.ParsePubKey(req.PublicKeys[i])
+		if err2 != nil {
+			log.Error("CreateSignedTransaction ParsePubKey", "err", err2)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err2.Error(),
+			}, err2
+		}
+		var pkData []byte
+		if btcec.IsCompressedPubKey(req.PublicKeys[i]) {
+			pkData = btcecPub.SerializeCompressed()
+		} else {
+			pkData = btcecPub.SerializeUncompressed()
+		}
+
+		sigScript, err2 := txscript.NewScriptBuilder().AddData(sig).AddData(pkData).Script()
 		if err2 != nil {
 			log.Error("create signed transaction new script builder", "err", err2)
 			return &utxo.SignedTransactionResponse{
@@ -605,10 +631,18 @@ func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest
 				Msg:  err2.Error(),
 			}, err2
 		}
+		//fmt.Println("txHash:", txHashRequest.Hash)
+		//fmt.Println("signature:", hex.EncodeToString(sig))
+		//fmt.Println("fromPKScript:", hex.EncodeToString(fromPkScript))
+		//fmt.Println("sigScript:", hex.EncodeToString(sigScript))
+		//fmt.Println("publicKey:", hex.EncodeToString(req.PublicKeys[i]))
+		//fmt.Println("pkData", hex.EncodeToString(pkData))
+		publicKeyHash, _ := extractPubKeyHashFromAddress(preTx.Tx.Tos[i].Address)
+		fmt.Println("publicKeyHash", hex.EncodeToString(publicKeyHash))
 		msgTx.TxIn[i].SignatureScript = sigScript
-		amountStr, _ := strconv.ParseFloat(txHashResponse.Tx.Values[in.PreviousOutPoint.Index].Value, 64)
+		amountStr, _ := strconv.ParseFloat(preTx.Tx.Values[in.PreviousOutPoint.Index].Value, 64)
 		amount := zecToSatoshi(amountStr)
-		log.Info("CreateSignedTransaction ", "amount", txHashResponse.Tx.Values[in.PreviousOutPoint.Index].Value, "int amount", amount)
+		log.Info("CreateSignedTransaction ", "amount", preTx.Tx.Values[in.PreviousOutPoint.Index].Value, "int amount", amount)
 
 		vm, err2 := txscript.NewEngine(fromPkScript, &msgTx, i, txscript.StandardVerifyFlags, nil, nil, amount.Int64(), nil)
 		if err2 != nil {
@@ -722,6 +756,7 @@ func (c *ChainAdaptor) CalcSignHashes(Vins []*utxo.Vin, Vouts []*utxo.Vout) ([][
 		log.Info("serialize fail")
 	}
 	//buf := bytes.NewBuffer(make([]byte, 0, rawTx.SerializeSize()))
+	log.Info("rawTx:", hex.EncodeToString(buffer.Bytes()))
 	return signHashes, buffer.Bytes(), nil
 }
 

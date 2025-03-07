@@ -295,6 +295,22 @@ grpcurl -plaintext -d '{
 }
 ```
 
+## 12. SendTx
+- request
+```
+grpcurl -plaintext -d '{
+  "chain": "Zcash",
+  "rawTx": "0400008085202f8901d32be6ff4fcd64b7c8def5154000f7ae878f63e485cea24fe8300399f52d0ccf000000006b483045022100aca8dcf8bf7646409830ff60d5c6dce33af9b7e36af8651552e6d3324d0beb7002204fed838250e402adf8a86733572351c2e7b541677f0a66e97ee95742fdb0f6de0121036e418e6b13e19614d67e281d2635fff7fa5e5d6e10eb6ed03d59dd3fd570ad5cffffffff01b2f37000000000001976a914924e352f887f6fdf46d3153fbc5124b5ad3f902988ac00000000000000000000000000000000000000"
+}' 127.0.0.1:8389 dapplink.utxo.WalletUtxoService.SendTx
+```
+- response
+```
+{
+  "code": "SUCCESS",
+  "msg": "send tx success",
+  "tx_hash": "4f389d3dede396cecf309f232411f4bd426d2383f62a7593b35d726764248625"
+}
+```
 
 
 
