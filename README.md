@@ -42,7 +42,7 @@ go build or go install wallet-chain-utxo
 ### Start the RPC interface test interface
 
 ```bash
-grpcui -plaintext 127.0.0.1:8189
+grpcui -plaintext 127.0.0.1:8389
 ```
 
 ## Contribute
